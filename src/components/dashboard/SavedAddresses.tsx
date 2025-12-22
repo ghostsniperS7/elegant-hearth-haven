@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { MapPin, Plus, Trash2 } from "lucide-react";
+import { addressSchema, AddressFormData } from "@/lib/validations";
 
 interface Address {
   id: string;
@@ -23,20 +24,32 @@ interface SavedAddressesProps {
   userId: string;
 }
 
+interface FormErrors {
+  label?: string;
+  street_address?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+}
+
+const initialAddressState = {
+  label: "",
+  street_address: "",
+  city: "",
+  state: "",
+  postal_code: "",
+  country: "USA",
+};
+
 export default function SavedAddresses({ userId }: SavedAddressesProps) {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
   const { toast } = useToast();
 
-  const [newAddress, setNewAddress] = useState({
-    label: "",
-    street_address: "",
-    city: "",
-    state: "",
-    postal_code: "",
-    country: "USA",
-  });
+  const [newAddress, setNewAddress] = useState(initialAddressState);
 
   useEffect(() => {
     fetchAddresses();
@@ -59,12 +72,40 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
     }
   };
 
+  const validateForm = (): AddressFormData | null => {
+    const result = addressSchema.safeParse(newAddress);
+    
+    if (!result.success) {
+      const fieldErrors: FormErrors = {};
+      result.error.errors.forEach((err) => {
+        const field = err.path[0] as keyof FormErrors;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = err.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return null;
+    }
+    
+    setErrors({});
+    return result.data;
+  };
+
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const validatedData = validateForm();
+    if (!validatedData) return;
+
     try {
       const { error } = await supabase.from("addresses").insert({
         user_id: userId,
-        ...newAddress,
+        label: validatedData.label.trim(),
+        street_address: validatedData.street_address.trim(),
+        city: validatedData.city.trim(),
+        state: validatedData.state.trim(),
+        postal_code: validatedData.postal_code.trim(),
+        country: validatedData.country.trim(),
       });
 
       if (error) throw error;
@@ -75,19 +116,13 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
       });
 
       setIsDialogOpen(false);
-      setNewAddress({
-        label: "",
-        street_address: "",
-        city: "",
-        state: "",
-        postal_code: "",
-        country: "USA",
-      });
+      setNewAddress(initialAddressState);
+      setErrors({});
       fetchAddresses();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Error",
-        description: error.message,
+        description: "Failed to add address. Please try again.",
         variant: "destructive",
       });
     }
@@ -105,12 +140,27 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
       });
 
       fetchAddresses();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Error",
-        description: error.message,
+        description: "Failed to delete address. Please try again.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleDialogChange = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      setNewAddress(initialAddressState);
+      setErrors({});
+    }
+  };
+
+  const updateField = (field: keyof typeof newAddress, value: string) => {
+    setNewAddress({ ...newAddress, [field]: value });
+    if (errors[field]) {
+      setErrors({ ...errors, [field]: undefined });
     }
   };
 
@@ -122,7 +172,7 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-playfair font-bold">Saved Addresses</h2>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -144,11 +194,16 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
                     id="label"
                     placeholder="Home, Office, etc."
                     value={newAddress.label}
-                    onChange={(e) =>
-                      setNewAddress({ ...newAddress, label: e.target.value })
-                    }
-                    required
+                    onChange={(e) => updateField("label", e.target.value)}
+                    maxLength={50}
+                    aria-invalid={!!errors.label}
+                    aria-describedby={errors.label ? "label-error" : undefined}
                   />
+                  {errors.label && (
+                    <p id="label-error" className="text-sm text-destructive">
+                      {errors.label}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="street">Street Address</Label>
@@ -156,11 +211,16 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
                     id="street"
                     placeholder="123 Main St"
                     value={newAddress.street_address}
-                    onChange={(e) =>
-                      setNewAddress({ ...newAddress, street_address: e.target.value })
-                    }
-                    required
+                    onChange={(e) => updateField("street_address", e.target.value)}
+                    maxLength={200}
+                    aria-invalid={!!errors.street_address}
+                    aria-describedby={errors.street_address ? "street-error" : undefined}
                   />
+                  {errors.street_address && (
+                    <p id="street-error" className="text-sm text-destructive">
+                      {errors.street_address}
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -169,11 +229,16 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
                       id="city"
                       placeholder="New York"
                       value={newAddress.city}
-                      onChange={(e) =>
-                        setNewAddress({ ...newAddress, city: e.target.value })
-                      }
-                      required
+                      onChange={(e) => updateField("city", e.target.value)}
+                      maxLength={100}
+                      aria-invalid={!!errors.city}
+                      aria-describedby={errors.city ? "city-error" : undefined}
                     />
+                    {errors.city && (
+                      <p id="city-error" className="text-sm text-destructive">
+                        {errors.city}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="state">State</Label>
@@ -181,11 +246,16 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
                       id="state"
                       placeholder="NY"
                       value={newAddress.state}
-                      onChange={(e) =>
-                        setNewAddress({ ...newAddress, state: e.target.value })
-                      }
-                      required
+                      onChange={(e) => updateField("state", e.target.value)}
+                      maxLength={50}
+                      aria-invalid={!!errors.state}
+                      aria-describedby={errors.state ? "state-error" : undefined}
                     />
+                    {errors.state && (
+                      <p id="state-error" className="text-sm text-destructive">
+                        {errors.state}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -194,11 +264,16 @@ export default function SavedAddresses({ userId }: SavedAddressesProps) {
                     id="postal"
                     placeholder="10001"
                     value={newAddress.postal_code}
-                    onChange={(e) =>
-                      setNewAddress({ ...newAddress, postal_code: e.target.value })
-                    }
-                    required
+                    onChange={(e) => updateField("postal_code", e.target.value)}
+                    maxLength={20}
+                    aria-invalid={!!errors.postal_code}
+                    aria-describedby={errors.postal_code ? "postal-error" : undefined}
                   />
+                  {errors.postal_code && (
+                    <p id="postal-error" className="text-sm text-destructive">
+                      {errors.postal_code}
+                    </p>
+                  )}
                 </div>
               </div>
               <DialogFooter>
